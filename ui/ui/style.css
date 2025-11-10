@@ -1,0 +1,17 @@
+Screen {
+    layout: horizontal;
+}
+#vm_list {
+    width: 50%;
+    border: round white;
+}
+#vm_info {
+    width: 50%;
+    border: round white;
+    padding: 1;
+}
+Header, Footer {
+    background: #222222;
+    color: white;
+    text-style: bold;
+}
