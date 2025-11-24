@@ -3,6 +3,7 @@ import logging
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer
 from textual.containers import Horizontal
+
 from ui.vm_list_view import VMListView, VMSelected
 from ui.vm_info_view import VMInfoPanel
 from ui.create_vm_modal import CreateVMModal, CreateVMSubmit
@@ -13,6 +14,7 @@ else:
     from core.mock_vm_manager import MockVMManager as VMManager
 
 logging.basicConfig(filename="debug.log", level=logging.DEBUG)
+
 
 class BhyveApp(App):
     CSS_PATH = "ui/style.css"
@@ -52,6 +54,7 @@ class BhyveApp(App):
         self.manager.create_vm(event.name, ip=event.ip)
         self.vm_list.refresh_list()
         self.notify(f"Created VM {event.name} with IP {event.ip}")
+
 
 if __name__ == "__main__":
     BhyveApp().run()

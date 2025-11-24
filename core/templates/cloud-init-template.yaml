@@ -1,0 +1,17 @@
+#cloud-config
+hostname: ${VM_NAME}
+
+users:
+  - name: bhyve
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${SSH_KEY}
+
+network:
+  version: 2
+  ethernets:
+    eth0:
+      dhcp4: false
+      addresses: [${IP}/24]
+      gateway4: 10.0.0.1
+      nameservers: [8.8.8.8]

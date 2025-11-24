@@ -1,45 +1,26 @@
-from dataclasses import dataclass
-from typing import List
 import random
 
-@dataclass
-class VM:
-    name: str
-    state: str
-    memory: str = "2G"
-    cpus: int = 2
-
-class MockVM:
-    def __init__(self, name, state="Stopped", ip="0.0.0.0"):
-        self.name = name
-        self.state = state
-        self.ip = ip
 
 class MockVMManager:
     def __init__(self):
         self.vms = [
-            VM(name="ubuntu-test", state="Running"),
-            VM(name="debian-dev", state="Stopped"),
-            VM(name="centos-lab", state="Paused"),
+            {"name": "ubuntu-test", "state": "Running"},
+            {"name": "debian-dev", "state": "Stopped"},
+            {"name": "centos-lab", "state": "Paused"},
         ]
 
-    def list_vms(self) -> List[VM]:
+    def list_vms(self):
         for vm in self.vms:
-            vm.state = random.choice(["Running", "Stopped", "Paused"])
+            vm["state"] = random.choice(["Running", "Stopped", "Paused"])
         return self.vms
 
-    def get_info(self, name: str) -> str:
-        vm = next((v for v in self.vms if v.name == name), None)
-        if not vm:
-            return "VM not found"
+    def get_info(self, name: str):
         return (
-            f"Name: {vm.name}\n"
-            f"State: {vm.state}\n"
-            f"Memory: {vm.memory}\n"
-            f"CPUs: {vm.cpus}\n"
-            f"Network: 192.168.0.{random.randint(10,99)}"
+            f"Name: {name}\n"
+            f"State: Running\n"
+            f"IP: 10.0.0.{random.randint(10, 200)}\n"
+            f"Memory: 2G\nCPUs: 2"
         )
 
-    def create_vm(self, name: str, **kwargs):
-        vm = MockVM(name=name, state="Stopped", ip=ip)
-        self.vms.append(vm)
+    def create_vm(self, name: str, ip: str):
+        self.vms.append({"name": name, "state": "Stopped"})

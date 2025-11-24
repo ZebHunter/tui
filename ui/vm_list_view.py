@@ -1,6 +1,6 @@
+import re
 from textual.widgets import DataTable
 from textual.message import Message
-import re
 
 
 class VMSelected(Message):
@@ -20,12 +20,11 @@ class VMListView(DataTable):
 
     def refresh_list(self):
         self.clear()
-        vm_list = self.manager.list_vms()
-        for vm in vm_list:
-            color = "green" if vm.state.lower() == "running" else "red"
-            self.add_row(f"[b]{vm.name}[/b]", f"[{color}]{vm.state}[/{color}]")
+        for vm in self.manager.list_vms():
+            color = "green" if vm["state"].lower() == "running" else "red"
+            self.add_row(f"[b]{vm['name']}[/b]", f"[{color}]{vm['state']}[/{color}]")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected):
         row = self.get_row_at(event.cursor_row)
-        name = re.sub(r"\[/?b\]", "", row[0])
-        self.post_message(VMSelected(name))
+        vm_name = re.sub(r"\[/?b\]", "", row[0])
+        self.post_message(VMSelected(vm_name))
