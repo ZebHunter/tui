@@ -22,6 +22,8 @@ class BhyveApp(App):
     BINDINGS = [
         ("r", "refresh", "Refresh list"),
         ("c", "create", "Create VM"),
+        ("s", "stop_vm", "Stop VM"),
+        ("d", "delete_vm", "Delete VM"),
         ("q", "quit", "Quit"),
     ]
 
@@ -55,6 +57,31 @@ class BhyveApp(App):
         self.vm_list.refresh_list()
         self.notify(f"Created VM {event.name} with IP {event.ip}")
 
+    async def action_stop_vm(self):
+        if not self.vm_list.selected_name:
+            self.notify("Select a VM first", severity="warning")
+            return
+
+        name = self.vm_list.selected_name
+        try:
+            self.manager.stop_vm(name)
+            self.notify(f"VM {name} stopped")
+            self.vm_list.refresh_list()
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+
+    async def action_delete_vm(self):
+        if not self.vm_list.selected_name:
+            self.notify("Select a VM to delete", severity="warning")
+            return
+
+        name = self.vm_list.selected_name
+        try:
+            self.manager.destroy_vm(name)
+            self.notify(f"VM {name} deleted")
+            self.vm_list.refresh_list()
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
 
 if __name__ == "__main__":
     BhyveApp().run()
