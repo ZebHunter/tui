@@ -15,18 +15,22 @@ class VMListView(DataTable):
         self.selected_name = None
 
     def on_mount(self):
-        self.add_columns("Name", "State")
+        self.add_columns("Name", "State", "IP Address", "Network")
         self.refresh_list()
 
     def refresh_list(self):
         self.clear()
         vms = self.manager.list_vms()
         for vm in vms:
-            state = vm["state"]
+            state = vm.get("state", "Unknown")
             color = "green" if state.lower() == "running" else "red"
+            ip = vm.get("ip", "N/A")
+            network_mode = vm.get("network_mode", "N/A")
             self.add_row(
                 f"[b]{vm['name']}[/b]",
-                f"[{color}]{state}[/{color}]"
+                f"[{color}]{state}[/{color}]",
+                ip,
+                network_mode
             )
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected):

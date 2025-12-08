@@ -40,3 +40,15 @@ class VmBhyveCLI:
         if err:
             raise RuntimeError(err)
         return out
+    
+    def switch_list(self) -> str:
+        out, err = self.run("switch", "list")
+        if err:
+            raise RuntimeError(err)
+        return out
+    
+    def switch_create(self, name: str):
+        return self.run("switch", "create", name)[0]
+    
+    def switch_add(self, switch_name: str, interface: str):
+        return self.run("switch", "add", switch_name, interface)[0]

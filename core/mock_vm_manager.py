@@ -22,5 +22,10 @@ class MockVMManager:
             f"Memory: 2G\nCPUs: 2"
         )
 
-    def create_vm(self, name: str, ip: str):
-        self.vms.append({"name": name, "state": "Stopped"})
+    def create_vm(self, name: str, ip: str, network_mode: str = "bridge"):
+        self.vms.append({
+            "name": name, 
+            "state": "Stopped",
+            "ip": ip,
+            "network_mode": network_mode
+        })

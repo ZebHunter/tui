@@ -24,6 +24,7 @@ class BhyveApp(App):
         ("c", "create", "Create VM"),
         ("s", "stop_vm", "Stop VM"),
         ("d", "delete_vm", "Delete VM"),
+        ("x", "ssh_connect", "SSH Connect"),
         ("q", "quit", "Quit"),
     ]
 
@@ -53,9 +54,9 @@ class BhyveApp(App):
         await self.push_screen(CreateVMModal())
 
     async def on_create_vm_submit(self, event: CreateVMSubmit):
-        self.manager.create_vm(event.name, ip=event.ip)
+        self.manager.create_vm(event.name, ip=event.ip, network_mode=event.network_mode)
         self.vm_list.refresh_list()
-        self.notify(f"Created VM {event.name} with IP {event.ip}")
+        self.notify(f"Created VM {event.name} with IP {event.ip} ({event.network_mode})")
 
     async def action_stop_vm(self):
         if not self.vm_list.selected_name:
@@ -80,6 +81,18 @@ class BhyveApp(App):
             self.manager.destroy_vm(name)
             self.notify(f"VM {name} deleted")
             self.vm_list.refresh_list()
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+    
+    async def action_ssh_connect(self):
+        if not self.vm_list.selected_name:
+            self.notify("Select a VM first", severity="warning")
+            return
+        
+        name = self.vm_list.selected_name
+        try:
+            result = self.manager.connect_ssh(name)
+            self.notify(f"SSH connection initiated to {name}")
         except Exception as exc:
             self.notify(str(exc), severity="error")
 

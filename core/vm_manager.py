@@ -3,8 +3,9 @@ import os
 import shutil
 import subprocess
 import logging
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 
 from .vm_bhyve_cli import VmBhyveCLI
 from .cloud_init_generator import generate_cloud_init
@@ -17,16 +18,78 @@ class VMManager:
     VM_ROOT = Path("/vm")        
     ISO_DIR = VM_ROOT / "iso"
     TEMPLATES_DIR = VM_ROOT / ".templates"
+    METADATA_FILE = VM_ROOT / ".vm_metadata.json"
 
     def __init__(self):
         self.cli = VmBhyveCLI()
         logging.basicConfig(filename="vm_manager.log", level=logging.DEBUG)
+        self._ensure_metadata_file()
 
     def list_vms(self):
-        return self.cli.list()
+        output = self.cli.list()
+        metadata = self._load_metadata()
+        
+        vms = []
+        lines = output.strip().split('\n')
+        for line in lines[1:] if len(lines) > 1 and 'NAME' in lines[0].upper() else lines:
+            if not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                name = parts[0]
+                state = parts[1]
+                vm_data = {"name": name, "state": state}
+                
+    
+                if name in metadata:
+                    vm_data.update(metadata[name])
+                
+                vms.append(vm_data)
+        
+        return vms
 
     def get_info(self, name: str):
-        return self.cli.info(name)
+        info = self.cli.info(name)
+        metadata = self.get_vm_metadata(name)
+        
+        if metadata:
+            info_lines = [info]
+            info_lines.append("\n--- Network Configuration ---")
+            if "ip" in metadata:
+                info_lines.append(f"IP Address: {metadata['ip']}")
+            if "network_mode" in metadata:
+                info_lines.append(f"Network Mode: {metadata['network_mode']}")
+            if "switch" in metadata:
+                info_lines.append(f"Switch: {metadata['switch']}")
+            if "gateway" in metadata:
+                info_lines.append(f"Gateway: {metadata['gateway']}")
+            return "\n".join(info_lines)
+        
+        return info
+
+    def ensure_network_switch(self, switch_name: str, network_mode: str = "bridge"):
+        try:
+            out = self.cli.switch_list()
+            if switch_name in out:
+                LOG.info("Switch %s already exists", switch_name)
+                return
+        except Exception:
+            pass
+        
+        if network_mode == "nat":
+            LOG.info("Creating NAT switch %s", switch_name)
+            try:
+                self.cli.switch_create(switch_name)
+                LOG.info("NAT switch %s created. Configure NAT manually if needed.", switch_name)
+            except Exception as exc:
+                LOG.warning("Failed to create switch %s: %s", switch_name, exc)
+        else: 
+            LOG.info("Creating bridge switch %s", switch_name)
+            try:
+                self.cli.switch_create(switch_name)
+                LOG.info("Bridge switch %s created. Add physical interface manually if needed.", switch_name)
+            except Exception as exc:
+                LOG.warning("Failed to create switch %s: %s", switch_name, exc)
 
     def ensure_templates(self):
         tpl_dir = self.TEMPLATES_DIR / "linux_temp"
@@ -52,6 +115,34 @@ class VMManager:
                     'cdrom0_type="ahci-cd"',
                 ]) + "\n"
             )
+
+    def _ensure_metadata_file(self):
+        if not self.METADATA_FILE.exists():
+            self.METADATA_FILE.write_text("{}")
+    
+    def _load_metadata(self) -> Dict:
+        if not self.METADATA_FILE.exists():
+            return {}
+        try:
+            return json.loads(self.METADATA_FILE.read_text())
+        except Exception:
+            LOG.exception("Failed to load metadata")
+            return {}
+    
+    def _save_metadata(self, metadata: Dict):
+        self.METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self.METADATA_FILE.write_text(json.dumps(metadata, indent=2))
+    
+    def get_vm_metadata(self, name: str) -> Optional[Dict]:
+        metadata = self._load_metadata()
+        return metadata.get(name)
+    
+    def _update_vm_metadata(self, name: str, **kwargs):
+        metadata = self._load_metadata()
+        if name not in metadata:
+            metadata[name] = {}
+        metadata[name].update(kwargs)
+        self._save_metadata(metadata)
 
     def ensure_vm_root(self):
         self.VM_ROOT.mkdir(parents=True, exist_ok=True)
@@ -119,12 +210,22 @@ class VMManager:
                   memory: str = "2G",
                   cpus: int = 2,
                   installer_iso_name: str = "ubuntu.iso",
-                  switch: str = "public"):
+                  network_mode: str = "bridge",
+                  switch: Optional[str] = None):
        
-        LOG.info("Creating VM %s ip=%s disk=%s mem=%s cpus=%d", name, ip, disk_size, memory, cpus)
+        LOG.info("Creating VM %s ip=%s disk=%s mem=%s cpus=%d network_mode=%s", 
+                 name, ip, disk_size, memory, cpus, network_mode)
 
         self.ensure_vm_root()
         self.ensure_templates()
+
+        if switch is None:
+            if network_mode == "nat":
+                switch = "public" 
+            else:
+                switch = "public" 
+        
+        self.ensure_network_switch(switch, network_mode)
 
         try:
             self.cli.create(name, template="linux_temp")
@@ -147,7 +248,20 @@ class VMManager:
         else:
             LOG.warning("vm.conf does not exist after vm create: %s", vm_conf)
 
-        yaml_data = generate_cloud_init(name=name, ip=ip)
+        try:
+            ip_parts = ip.split('.')
+            if len(ip_parts) == 4:
+                network_prefix = '.'.join(ip_parts[:3])
+                if network_mode == "nat":
+                    gateway = f"{network_prefix}.1"
+                else:
+                    gateway = f"{network_prefix}.1"
+            else:
+                gateway = "10.0.0.1" 
+        except Exception:
+            gateway = "10.0.0.1" 
+        
+        yaml_data = generate_cloud_init(name=name, ip=ip, gateway=gateway, network_mode=network_mode)
         iso_path = self.ISO_DIR / f"{name}-cloud-init.iso"
         try:
             build_cloud_init_iso(yaml_data, str(iso_path))
@@ -156,6 +270,12 @@ class VMManager:
             raise
 
         self.add_cloud_iso_to_vmconf(name, iso_path)
+
+        self._update_vm_metadata(name, 
+                                 ip=ip, 
+                                 network_mode=network_mode,
+                                 switch=switch,
+                                 gateway=gateway)
 
         installer_iso = self.check_installer_iso(installer_iso_name)
         if not installer_iso:
@@ -178,4 +298,22 @@ class VMManager:
         except Exception:
             LOG.exception("Failed to start VM %s", name)
 
-        return {"name": name, "disk": str(disk_path), "cloud_iso": str(iso_path)}
+        return {"name": name, "disk": str(disk_path), "cloud_iso": str(iso_path), "ip": ip}
+    
+    def connect_ssh(self, name: str, user: str = "bhyve", port: int = 22):
+        metadata = self.get_vm_metadata(name)
+        if not metadata or "ip" not in metadata:
+            raise RuntimeError(f"No IP address found for VM {name}. Make sure VM was created with an IP address.")
+        
+        ip = metadata["ip"]
+        LOG.info("Connecting to VM %s via SSH at %s@%s", name, user, ip)
+        ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", 
+                   "-o", "UserKnownHostsFile=/dev/null",
+                   f"{user}@{ip}", "-p", str(port)]
+        
+        try:
+            subprocess.Popen(ssh_cmd)
+            return f"SSH connection initiated to {user}@{ip}"
+        except Exception as exc:
+            LOG.exception("Failed to connect via SSH")
+            raise RuntimeError(f"Failed to connect via SSH: {exc}")
