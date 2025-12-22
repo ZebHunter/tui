@@ -41,10 +41,15 @@ class BhyveApp(App):
             yield self.vm_info
         yield Footer()
 
-    async def on_vm_selected(self, event: VMSelected):
-        info = self.manager.get_info(event.name)
-        logging.debug(f"Info content: {info}")
-        self.vm_info.update_info(info)
+    def on_vm_selected(self, event: VMSelected):
+        logging.debug(f"Received VMSelected event for: {event.name}")
+        try:
+            info = self.manager.get_info(event.name)
+            logging.debug(f"Info content: {info}")
+            self.vm_info.update_info(info)
+        except Exception as exc:
+            logging.exception(f"Failed to get VM info for {event.name}")
+            self.vm_info.update_info(f"Error loading info for {event.name}: {exc}")
 
     async def action_refresh(self):
         self.vm_list.refresh_list()
@@ -52,11 +57,35 @@ class BhyveApp(App):
 
     async def action_create(self):
         await self.push_screen(CreateVMModal())
-
-    async def on_create_vm_submit(self, event: CreateVMSubmit):
-        self.manager.create_vm(event.name, ip=event.ip, network_mode=event.network_mode)
-        self.vm_list.refresh_list()
-        self.notify(f"Created VM {event.name} with IP {event.ip} ({event.network_mode})")
+    
+    def on_screen_result(self, screen, result):
+        logging.debug(f"on_screen_result called: screen={type(screen).__name__}, result={result}, type={type(result)}")
+        if isinstance(result, CreateVMSubmit):
+            self._handle_vm_creation(result)
+    
+    def on_create_vm_submit(self, event: CreateVMSubmit):
+        logging.debug(f"on_create_vm_submit called: name={event.name}, ip={event.ip}, network_mode={event.network_mode}")
+        self._handle_vm_creation(event)
+    
+    def _handle_vm_creation(self, submit_data: CreateVMSubmit):
+        logging.debug(f"Handling VM creation: name={submit_data.name}, ip={submit_data.ip}, network_mode={submit_data.network_mode}")
+        try:
+            create_result = self.manager.create_vm(
+                submit_data.name,
+                ip=submit_data.ip if submit_data.ip else None,
+                network_mode=submit_data.network_mode,
+            )
+            logging.debug(f"VM created, result: {create_result}")
+            self.vm_list.refresh_list()
+            ip = submit_data.ip or None
+            if isinstance(create_result, dict):
+                ip = create_result.get("ip", ip or "N/A")
+            if not ip:
+                ip = "N/A"
+            self.notify(f"Created VM {submit_data.name} with IP {ip} ({submit_data.network_mode})")
+        except Exception as exc:
+            self.notify(f"Failed to create VM: {exc}", severity="error")
+            logging.exception("Failed to create VM")
 
     async def action_stop_vm(self):
         if not self.vm_list.selected_name:

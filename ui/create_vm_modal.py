@@ -17,7 +17,7 @@ class CreateVMModal(ModalScreen):
     def compose(self) -> ComposeResult:
         yield Vertical(
             Input(placeholder="VM name", id="vm_name"),
-            Input(placeholder="Static IP (e.g. 10.0.0.50)", id="vm_ip"),
+            Input(placeholder="Static IP (empty = auto)", id="vm_ip"),
             Select(
                 options=[("Bridge", "bridge"), ("NAT", "nat")],
                 value="bridge",
@@ -32,11 +32,22 @@ class CreateVMModal(ModalScreen):
 
     async def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "create":
-            name = self.query_one("#vm_name", Input).value
-            ip = self.query_one("#vm_ip", Input).value
-            network_mode = self.query_one("#network_mode", Select).value
-            if not name or not ip:
+            name = self.query_one("#vm_name", Input).value.strip()
+            ip = self.query_one("#vm_ip", Input).value.strip()
+            network_mode_select = self.query_one("#network_mode", Select)
+            network_mode = network_mode_select.value
+            if isinstance(network_mode, tuple):
+                network_mode = network_mode[1]
+
+            if not name:
                 return
-            self.dismiss(CreateVMSubmit(name, ip, network_mode))
+
+            import logging
+            logging.debug(f"Creating VM: name={name}, ip={ip}, network_mode={network_mode}")
+            if hasattr(self.app, '_handle_vm_creation'):
+                submit_data = CreateVMSubmit(name, ip, network_mode)
+                logging.debug(f"Calling _handle_vm_creation directly")
+                self.app._handle_vm_creation(submit_data)
+            self.dismiss()
         else:
-            self.dismiss(None)
+            self.dismiss()

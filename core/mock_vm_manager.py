@@ -1,4 +1,5 @@
 import random
+from typing import Optional
 
 
 class MockVMManager:
@@ -22,10 +23,29 @@ class MockVMManager:
             f"Memory: 2G\nCPUs: 2"
         )
 
-    def create_vm(self, name: str, ip: str, network_mode: str = "bridge"):
+    def create_vm(self, name: str, ip: Optional[str] = None, network_mode: str = "bridge", **kwargs):
+        if not ip:
+            ip = f"10.0.0.{random.randint(50, 200)}"
         self.vms.append({
             "name": name, 
             "state": "Stopped",
             "ip": ip,
             "network_mode": network_mode
         })
+        return {"name": name, "ip": ip, "network_mode": network_mode}
+    
+    def stop_vm(self, name: str):
+        for vm in self.vms:
+            if vm["name"] == name:
+                vm["state"] = "Stopped"
+                return
+    
+    def destroy_vm(self, name: str):
+        self.vms = [vm for vm in self.vms if vm["name"] != name]
+    
+    def connect_ssh(self, name: str, user: str = "bhyve", port: int = 22):
+        for vm in self.vms:
+            if vm["name"] == name:
+                ip = vm.get("ip", "10.0.0.1")
+                return f"SSH connection initiated to {user}@{ip}"
+        raise RuntimeError(f"VM {name} not found")

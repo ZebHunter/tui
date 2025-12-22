@@ -15,9 +15,10 @@ class VmBhyveCLI:
         return out
 
     def create(self, name: str, template: Optional[str] = None):
-        args = ["create", name]
+        args = ["create"]
         if template:
             args += ["-t", template]
+        args.append(name)
         return self.run(*args)[0]
 
     def install(self, name: str, iso_path: str):
@@ -47,8 +48,12 @@ class VmBhyveCLI:
             raise RuntimeError(err)
         return out
     
-    def switch_create(self, name: str):
-        return self.run("switch", "create", name)[0]
+    def switch_create(self, name: str, address: Optional[str] = None):
+        args = ["switch", "create"]
+        if address:
+            args.extend(["-a", address])
+        args.append(name)
+        return self.run(*args)[0]
     
     def switch_add(self, switch_name: str, interface: str):
         return self.run("switch", "add", switch_name, interface)[0]

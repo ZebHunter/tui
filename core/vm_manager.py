@@ -1,11 +1,10 @@
 # core/vm_manager.py
-import os
-import shutil
 import subprocess
 import logging
 import json
 from pathlib import Path
 from typing import Optional, Dict
+import ipaddress
 
 from .vm_bhyve_cli import VmBhyveCLI
 from .cloud_init_generator import generate_cloud_init
@@ -19,6 +18,9 @@ class VMManager:
     ISO_DIR = VM_ROOT / "iso"
     TEMPLATES_DIR = VM_ROOT / ".templates"
     METADATA_FILE = VM_ROOT / ".vm_metadata.json"
+    IP_POOL_START = "10.0.0.50"
+    IP_POOL_END = "10.0.0.250"
+    DEFAULT_GATEWAY = "10.0.0.1"
 
     def __init__(self):
         self.cli = VmBhyveCLI()
@@ -67,7 +69,7 @@ class VMManager:
         
         return info
 
-    def ensure_network_switch(self, switch_name: str, network_mode: str = "bridge"):
+    def ensure_network_switch(self, switch_name: str, network_mode: str = "bridge", gateway_ip: Optional[str] = None):
         try:
             out = self.cli.switch_list()
             if switch_name in out:
@@ -77,19 +79,27 @@ class VMManager:
             pass
         
         if network_mode == "nat":
-            LOG.info("Creating NAT switch %s", switch_name)
+            if gateway_ip is None:
+                gateway_ip = f"{self.DEFAULT_GATEWAY}/24"
+            elif "/" not in gateway_ip:
+                gateway_ip = f"{gateway_ip}/24"
+            
+            LOG.info("Creating NAT switch %s with gateway %s", switch_name, gateway_ip)
             try:
-                self.cli.switch_create(switch_name)
-                LOG.info("NAT switch %s created. Configure NAT manually if needed.", switch_name)
+                self.cli.switch_create(switch_name, address=gateway_ip)
+                LOG.info("NAT switch %s created with gateway %s. Ensure pf NAT rules are configured.", 
+                        switch_name, gateway_ip)
             except Exception as exc:
-                LOG.warning("Failed to create switch %s: %s", switch_name, exc)
+                LOG.warning("Failed to create NAT switch %s: %s", switch_name, exc)
+                raise
         else: 
             LOG.info("Creating bridge switch %s", switch_name)
             try:
                 self.cli.switch_create(switch_name)
                 LOG.info("Bridge switch %s created. Add physical interface manually if needed.", switch_name)
             except Exception as exc:
-                LOG.warning("Failed to create switch %s: %s", switch_name, exc)
+                LOG.warning("Failed to create bridge switch %s: %s", switch_name, exc)
+                raise
 
     def ensure_templates(self):
         tpl_dir = self.TEMPLATES_DIR / "linux_temp"
@@ -143,6 +153,43 @@ class VMManager:
             metadata[name] = {}
         metadata[name].update(kwargs)
         self._save_metadata(metadata)
+
+    def _delete_vm_metadata(self, name: str) -> None:
+        metadata = self._load_metadata()
+        if name in metadata:
+            del metadata[name]
+            self._save_metadata(metadata)
+
+    def _allocated_ips(self) -> set[str]:
+        metadata = self._load_metadata()
+        ips: set[str] = set()
+        for vm_data in metadata.values():
+            ip = vm_data.get("ip")
+            if ip:
+                ips.add(ip)
+        return ips
+
+    def _generate_ip(self) -> str:
+        used = self._allocated_ips()
+        start = ipaddress.IPv4Address(self.IP_POOL_START)
+        end = ipaddress.IPv4Address(self.IP_POOL_END)
+
+        for ip_int in range(int(start), int(end) + 1):
+            ip_str = str(ipaddress.IPv4Address(ip_int))
+            if ip_str not in used:
+                return ip_str
+
+        raise RuntimeError("No free IP addresses left in pool "
+                           f"{self.IP_POOL_START}–{self.IP_POOL_END}")
+
+    def _guess_gateway(self, ip: str) -> str:
+        try:
+            addr = ipaddress.IPv4Address(ip)
+            net = ipaddress.IPv4Network(f"{ip}/24", strict=False)
+            gw = net.network_address + 1
+            return str(gw)
+        except Exception:
+            return self.DEFAULT_GATEWAY
 
     def ensure_vm_root(self):
         self.VM_ROOT.mkdir(parents=True, exist_ok=True)
@@ -198,14 +245,17 @@ class VMManager:
 
     def destroy_vm(self, name: str):
         try:
-            return self.cli.destroy(name)
+            result = self.cli.destroy(name)
         except Exception as exc:
             raise RuntimeError(f"Failed to destroy VM {name}: {exc}")
+        else:
+            self._delete_vm_metadata(name)
+            return result
         
 
     def create_vm(self,
                   name: str,
-                  ip: str,
+                  ip: Optional[str] = None,
                   disk_size: str = "20G",
                   memory: str = "2G",
                   cpus: int = 2,
@@ -216,16 +266,28 @@ class VMManager:
         LOG.info("Creating VM %s ip=%s disk=%s mem=%s cpus=%d network_mode=%s", 
                  name, ip, disk_size, memory, cpus, network_mode)
 
+        if not ip:
+            existing = self.get_vm_metadata(name)
+            if existing and "ip" in existing:
+                ip = existing["ip"]
+                LOG.info("Reusing existing IP %s for VM %s", ip, name)
+            else:
+                ip = self._generate_ip()
+                LOG.info("Allocated new IP %s for VM %s", ip, name)
+
         self.ensure_vm_root()
         self.ensure_templates()
 
+        gateway = self._guess_gateway(ip)
+        
         if switch is None:
             if network_mode == "nat":
                 switch = "public" 
             else:
                 switch = "public" 
         
-        self.ensure_network_switch(switch, network_mode)
+        gateway_for_switch = gateway if network_mode == "nat" else None
+        self.ensure_network_switch(switch, network_mode, gateway_ip=gateway_for_switch)
 
         try:
             self.cli.create(name, template="linux_temp")
@@ -248,19 +310,6 @@ class VMManager:
         else:
             LOG.warning("vm.conf does not exist after vm create: %s", vm_conf)
 
-        try:
-            ip_parts = ip.split('.')
-            if len(ip_parts) == 4:
-                network_prefix = '.'.join(ip_parts[:3])
-                if network_mode == "nat":
-                    gateway = f"{network_prefix}.1"
-                else:
-                    gateway = f"{network_prefix}.1"
-            else:
-                gateway = "10.0.0.1" 
-        except Exception:
-            gateway = "10.0.0.1" 
-        
         yaml_data = generate_cloud_init(name=name, ip=ip, gateway=gateway, network_mode=network_mode)
         iso_path = self.ISO_DIR / f"{name}-cloud-init.iso"
         try:
