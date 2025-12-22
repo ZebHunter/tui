@@ -46,28 +46,37 @@ class VMListView(DataTable):
         name = None
         
         try:
-            if hasattr(event, 'cursor_row'):
-                cursor_row = event.cursor_row
-                logging.debug(f"cursor_row: {cursor_row}")
-                row_key = self.get_row_key_at(cursor_row)
-                if row_key:
-                    name = str(row_key)
-                    logging.debug(f"Got name from get_row_key_at({cursor_row}): {name}")
-        except Exception as e:
-            logging.debug(f"Error getting name from cursor_row: {e}")
         
-        if not name:
-            try:
-                if hasattr(event, 'row_key') and event.row_key:
-                    row_key_obj = event.row_key
-                    if hasattr(row_key_obj, 'value'):
-                        name = str(row_key_obj.value)
-                    else:
+            if hasattr(event, 'row_key') and event.row_key:
+                row_key_obj = event.row_key
+                if hasattr(row_key_obj, 'value'):
+                    name = str(row_key_obj.value)
+                elif hasattr(row_key_obj, '__str__'):
+                    name_str = str(row_key_obj)
+                    if name_str.startswith('<textual'):
                         if hasattr(event, 'cursor_row'):
-                            name = str(self.get_row_key_at(event.cursor_row))
-                    logging.debug(f"Got name from row_key object: {name}")
+                            try:
+                                row = self.get_row_at(event.cursor_row)
+                                if row and len(row) > 0:
+                                    name = re.sub(r"\[/?b\]", "", str(row[0])).strip()
+                            except:
+                                pass
+                    else:
+                        name = name_str
+                else:
+                    name = str(row_key_obj)
+                logging.debug(f"Got name from row_key object: {name}")
+        except Exception as e:
+            logging.debug(f"Error getting row_key: {e}")
+        
+        if not name and hasattr(event, 'cursor_row'):
+            try:
+                row = self.get_row_at(event.cursor_row)
+                if row and len(row) > 0:
+                    name = re.sub(r"\[/?b\]", "", str(row[0])).strip()
+                    logging.debug(f"Got name from row data: {name}")
             except Exception as e:
-                logging.debug(f"Error getting row_key: {e}")
+                logging.debug(f"Error getting row data: {e}")
         
         if not name:
             try:
@@ -109,7 +118,23 @@ class VMListView(DataTable):
         
         if name:
             self.selected_name = name
-            logging.debug(f"Selected VM: {name}, posting VMSelected message")
-            self.post_message(VMSelected(name))
+            logging.debug(f"Selected VM: {name}")
+            
+            try:
+                app = self.app
+                if hasattr(app, 'on_vm_selected'):
+                    logging.debug(f"Calling app.on_vm_selected directly with name: {name}")
+                    class MockEvent:
+                        def __init__(self, name):
+                            self.name = name
+                    app.on_vm_selected(MockEvent(name))
+                    logging.debug(f"Direct call completed")
+            except Exception as e:
+                logging.debug(f"Direct call failed: {e}, trying message")
+            
+            message = VMSelected(name)
+            logging.debug(f"Posting VMSelected message: {message}, name={message.name}")
+            result = self.post_message(message)
+            logging.debug(f"post_message returned: {result}")
         else:
             logging.warning(f"Could not determine selected VM name. Event: {event}, cursor_row: {getattr(event, 'cursor_row', 'N/A')}")

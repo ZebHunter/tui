@@ -42,7 +42,7 @@ class BhyveApp(App):
         yield Footer()
 
     def on_vm_selected(self, event: VMSelected):
-        logging.debug(f"Received VMSelected event for: {event.name}")
+        logging.debug(f"on_vm_selected called: event={event}, event.name={event.name}, type={type(event)}")
         try:
             info = self.manager.get_info(event.name)
             logging.debug(f"Info content: {info}")
