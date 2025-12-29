@@ -1,17 +1,27 @@
 import subprocess
+import shutil
 from typing import Tuple, Optional
 
 
 class VmBhyveCLI:
+    def __init__(self):
+        if not shutil.which("vm"):
+            raise RuntimeError(
+                "vm-bhyve command not found. Install it on FreeBSD:\n"
+                "  pkg install vm-bhyve\n"
+                "Then initialize with: vm init"
+            )
+
     def run(self, *args) -> Tuple[str, str]:
         cmd = ["vm"] + list(args)
         proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            error_msg = proc.stderr.strip() or proc.stdout.strip() or f"Command failed: {' '.join(cmd)}"
+            raise RuntimeError(f"vm-bhyve error: {error_msg}")
         return proc.stdout, proc.stderr
 
     def list(self) -> str:
         out, err = self.run("list")
-        if err:
-            raise RuntimeError(err)
         return out
 
     def create(self, name: str, template: Optional[str] = None):
@@ -38,14 +48,10 @@ class VmBhyveCLI:
 
     def info(self, name: str) -> str:
         out, err = self.run("info", name)
-        if err:
-            raise RuntimeError(err)
         return out
     
     def switch_list(self) -> str:
         out, err = self.run("switch", "list")
-        if err:
-            raise RuntimeError(err)
         return out
     
     def switch_create(self, name: str, address: Optional[str] = None):
