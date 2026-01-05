@@ -63,3 +63,29 @@ class VmBhyveCLI:
     
     def switch_add(self, switch_name: str, interface: str):
         return self.run("switch", "add", switch_name, interface)[0]
+    
+    def console(self, name: str):
+        import subprocess
+        import pty
+        import os
+        try:
+            master, slave = pty.openpty()
+            cmd = ["vm", "console", name]
+            process = subprocess.Popen(
+                cmd,
+                stdin=slave,
+                stdout=slave,
+                stderr=slave,
+                start_new_session=True
+            )
+            os.close(slave)
+            return process, master
+        except Exception as e:
+            cmd = ["vm", "console", name]
+            return subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            ), None

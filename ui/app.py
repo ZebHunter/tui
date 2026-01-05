@@ -7,6 +7,7 @@ from textual.containers import Horizontal
 from ui.vm_list_view import VMListView, VMSelected
 from ui.vm_info_view import VMInfoPanel
 from ui.create_vm_modal import CreateVMModal, CreateVMSubmit
+from ui.vm_console_screen import VMConsoleScreen
 
 if platform.system() == "FreeBSD":
     from core.vm_manager import VMManager
@@ -22,9 +23,11 @@ class BhyveApp(App):
     BINDINGS = [
         ("r", "refresh", "Refresh list"),
         ("c", "create", "Create VM"),
+        ("space", "start_vm", "Start VM"),
         ("s", "stop_vm", "Stop VM"),
         ("d", "delete_vm", "Delete VM"),
         ("x", "ssh_connect", "SSH Connect"),
+        ("t", "console", "VM Console"),
         ("q", "quit", "Quit"),
     ]
 
@@ -87,6 +90,19 @@ class BhyveApp(App):
             self.notify(f"Failed to create VM: {exc}", severity="error")
             logging.exception("Failed to create VM")
 
+    async def action_start_vm(self):
+        if not self.vm_list.selected_name:
+            self.notify("Select a VM first", severity="warning")
+            return
+
+        name = self.vm_list.selected_name
+        try:
+            self.manager.start_vm(name)
+            self.notify(f"VM {name} started")
+            self.vm_list.refresh_list()
+        except Exception as exc:
+            self.notify(str(exc), severity="error")
+
     async def action_stop_vm(self):
         if not self.vm_list.selected_name:
             self.notify("Select a VM first", severity="warning")
@@ -124,6 +140,18 @@ class BhyveApp(App):
             self.notify(f"SSH connection initiated to {name}")
         except Exception as exc:
             self.notify(str(exc), severity="error")
+    
+    async def action_console(self):
+        if not self.vm_list.selected_name:
+            self.notify("Select a VM first", severity="warning")
+            return
+        
+        name = self.vm_list.selected_name
+        try:
+            await self.push_screen(VMConsoleScreen(name, self.manager))
+        except Exception as exc:
+            self.notify(f"Failed to open console: {exc}", severity="error")
+            logging.exception("Failed to open console")
 
 if __name__ == "__main__":
     BhyveApp().run()

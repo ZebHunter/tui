@@ -237,6 +237,12 @@ class VMManager:
         LOG.warning("No installer ISO found in %s", self.ISO_DIR)
         return None
 
+    def start_vm(self, name: str):
+        try:
+            return self.cli.start(name)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to start VM {name}: {exc}")
+
     def stop_vm(self, name: str):
         try:
             return self.cli.stop(name)
@@ -375,3 +381,11 @@ class VMManager:
         except Exception as exc:
             LOG.exception("Failed to connect via SSH")
             raise RuntimeError(f"Failed to connect via SSH: {exc}")
+    
+    def connect_console(self, name: str):
+        LOG.info("Connecting to console of VM %s", name)
+        try:
+            return self.cli.console(name)
+        except Exception as exc:
+            LOG.exception("Failed to connect to console")
+            raise RuntimeError(f"Failed to connect to console of VM {name}: {exc}")
