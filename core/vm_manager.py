@@ -339,6 +339,15 @@ class VMManager:
             LOG.exception("vm install failed")
             raise
 
+        vm_conf = self.VM_ROOT / name / "vm.conf"
+        if vm_conf.exists():
+            conf_content = vm_conf.read_text()
+            if "cdrom0_name" not in conf_content:
+                LOG.warning("cdrom0_name not found after vm install, adding manually")
+                with vm_conf.open("a") as f:
+                    f.write(f'\n# Installer ISO added by VMManager\n')
+                    f.write(f'cdrom0_name="{str(installer_iso)}"\n')
+
         LOG.info("VM %s created and installer attached. Cloud-init seed: %s", name, iso_path)
 
         try:
