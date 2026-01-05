@@ -25,6 +25,7 @@ class VMConsoleScreen(Screen):
         self.console_process = None
         self.console_master_fd = None
         self.console_widget = None
+        self.console_output_buffer = ""
     
     def compose(self) -> ComposeResult:
         yield Container(
@@ -36,6 +37,8 @@ class VMConsoleScreen(Screen):
     
     async def on_mount(self) -> None:
         self.console_widget = self.query_one("#console_output", Static)
+        self.console_output_buffer = "Connected to VM console. Type to interact...\n"
+        self.console_widget.update(self.console_output_buffer)
         try:
             result = self.manager.connect_console(self.vm_name)
             if isinstance(result, tuple):
@@ -46,12 +49,13 @@ class VMConsoleScreen(Screen):
             
             if self.console_process:
                 asyncio.create_task(self._read_console_output())
-                self.console_widget.update("Connected to VM console. Type to interact...\n")
             else:
-                self.console_widget.update(f"[red]Failed to connect to console of {self.vm_name}[/red]")
+                self.console_output_buffer = f"[red]Failed to connect to console of {self.vm_name}[/red]"
+                self.console_widget.update(self.console_output_buffer)
         except Exception as e:
             LOG.exception(f"Failed to connect to console: {e}")
-            self.console_widget.update(f"[red]Error connecting to console: {e}[/red]")
+            self.console_output_buffer = f"[red]Error connecting to console: {e}[/red]"
+            self.console_widget.update(self.console_output_buffer)
     
     async def _read_console_output(self):
         if not self.console_process:
@@ -71,13 +75,11 @@ class VMConsoleScreen(Screen):
                                     data = os.read(key.fileobj, 1024)
                                     if data:
                                         line = data.decode('utf-8', errors='replace')
-                                        current_text = self.console_widget.renderable
-                                        if isinstance(current_text, str):
-                                            new_text = current_text + line
-                                            lines = new_text.split('\n')
-                                            if len(lines) > 1000:
-                                                new_text = '\n'.join(lines[-1000:])
-                                            self.console_widget.update(new_text)
+                                        self.console_output_buffer += line
+                                        lines = self.console_output_buffer.split('\n')
+                                        if len(lines) > 1000:
+                                            self.console_output_buffer = '\n'.join(lines[-1000:])
+                                        self.console_widget.update(self.console_output_buffer)
                                 except OSError:
                                     break
                     await asyncio.sleep(0.01)
@@ -87,13 +89,11 @@ class VMConsoleScreen(Screen):
                     if self.console_process.stdout:
                         line = self.console_process.stdout.readline()
                         if line:
-                            current_text = self.console_widget.renderable
-                            if isinstance(current_text, str):
-                                new_text = current_text + line
-                                lines = new_text.split('\n')
-                                if len(lines) > 1000:
-                                    new_text = '\n'.join(lines[-1000:])
-                                self.console_widget.update(new_text)
+                            self.console_output_buffer += line
+                            lines = self.console_output_buffer.split('\n')
+                            if len(lines) > 1000:
+                                self.console_output_buffer = '\n'.join(lines[-1000:])
+                            self.console_widget.update(self.console_output_buffer)
                     await asyncio.sleep(0.01)
         except Exception as e:
             LOG.exception(f"Error reading console output: {e}")
